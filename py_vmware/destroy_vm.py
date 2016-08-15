@@ -33,14 +33,11 @@ def setup_args():
     parser = cli.build_arg_parser()
     # using j here because -u is used for user
     parser.add_argument('-j', '--uuid',
-                        help='BIOS UUID of the VirtualMachine you want '
-                             'to reboot.')
+                        help='BIOS UUID of the VirtualMachine you want to destroy.')
     parser.add_argument('-n', '--name',
-                        help='DNS Name of the VirtualMachine you want to '
-                             'reboot.')
+                        help='DNS Name of the VirtualMachine you want to destroy.')
     parser.add_argument('-i', '--ip',
-                        help='IP Address of the VirtualMachine you want to '
-                             'reboot')
+                        help='IP Address of the VirtualMachine you want to destroy')
 
     my_args = parser.parse_args()
 

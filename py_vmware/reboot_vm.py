@@ -6,7 +6,7 @@ import py_vmware.vmware_lib as vmware_lib
 
 def get_args():
     """ Get arguments from CLI """
-    parser = argparse.ArgumentParser(description='Arguments for talking to vCenter')
+    parser = argparse.ArgumentParser(description='Reboot a target VM by name')
 
     parser.add_argument('-s', '--host',
                         required=True,

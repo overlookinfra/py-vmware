@@ -209,9 +209,10 @@ def clone_vm(
     # set relospec
     relospec = vim.vm.RelocateSpec()
     relospec.datastore = datastore
-    #if linked_clone:
-    relospec.diskMoveType = 'moveChildMostDiskBacking'
-    #   relospec.diskMoveType = 'createNewChildDiskBacking'
+    if linked_clone:
+        relospec.diskMoveType = 'moveChildMostDiskBacking'
+    #else:
+    #    relospec.diskMoveType = 'createNewChildDiskBacking'
     relospec.pool = resource_pool
 
     vmconf = vim.vm.ConfigSpec()

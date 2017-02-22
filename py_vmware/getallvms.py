@@ -26,6 +26,7 @@ import argparse
 import atexit
 import getpass
 import ssl
+import py_vmware.vmware_lib as vmware_lib
 
 def GetArgs():
     """
@@ -41,6 +42,11 @@ def GetArgs():
                         help='User name to use when connecting to host')
     parser.add_argument('-p', '--password', required=False, action='store',
                         help='Password to use when connecting to host')
+    parser.add_argument('-i', '--insecure',
+                        required=False,
+                        action='store_true',
+                        help='disable ssl validation')
+
     args = parser.parse_args()
     return args
 
@@ -86,19 +92,14 @@ def main():
 
     args = GetArgs()
     if args.password:
-       password = args.password
+        password = args.password
     else:
-       password = getpass.getpass(prompt='Enter password for host %s and '
-                                         'user %s: ' % (args.host,args.user))
+        password = getpass.getpass(prompt='Enter password for host %s and '
+                                         'user %s: ' % (args.host, args.user))
 
+    si = vmware_lib.connect(
+        args.host, args.user, password, args.port, args.insecure)
 
-    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
-    #context.verify_mode = ssl.CERT_NONE
-    si = SmartConnect(host=args.host,
-                      user=args.user,
-                      pwd=password,
-                      port=int(args.port),)
-    #                  sslContext=context)
     if not si:
         print("Could not connect to the specified host using specified "
               "username and password")

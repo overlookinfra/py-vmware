@@ -58,6 +58,10 @@ def get_args():
                         action='store',
                         help='path to NFS datastore target - $server:/mount/point')
 
+    parser.add_argument('--local_datastore_name',
+                        action='store',
+                        help='Name of volume when mounted, if different than the remote path')
+
     parser.add_argument('-m', '--mount',
                         action='store_true',
                         help='Whether to mount the volume')
@@ -76,7 +80,7 @@ def main():
     si = vmware_lib.connect(
         args.host, args.user, args.password, args.port, args.insecure)
     content = si.RetrieveContent()
-    dsspec = vmware_lib.datastore_spec(args.datastore)
+    dsspec = vmware_lib.datastore_spec(args.datastore, args.local_datastore_name)
 
     if args.mount:
         if args.cluster:

@@ -20,10 +20,8 @@ def wait_for_task(task):
             return task.info.result
 
         if task.info.state == 'error':
-            print "there was an error"
-            print task.info.error.msg
+            print "there was an error - {}".format(task.info.error.msg)
             task_done = True
-            sys.exit(1)
 
 def get_obj(content, vimtype, name):
     """
@@ -219,11 +217,24 @@ def unmount_datastore(datastore, host):
     except:
         return False
 
-def datastore_spec(target):
+def datastore_spec(target, name=None):
     """Build a datastore spec for mounting the datastore"""
     dsspec = vim.host.NasVolume.Specification()
     target_parts = target.split(':')
     dsspec.remoteHost, dsspec.remotePath = target_parts
     dsspec.localPath = dsspec.remotePath.split('/')[-1]
     dsspec.accessMode = 'readWrite'
+    if name:
+        dsspec.localPath = name
     return dsspec
+
+def migrate_vm_datastore(vm, datastore):
+    """
+    Migrate a VM to a alternate datastore
+    """
+    # set relospec
+    relospec = vim.vm.RelocateSpec()
+    relospec.datastore = datastore
+    print "Migrating {} to {}...".format(vm.name, datastore.name)
+    task = vm.Relocate(spec=relospec)
+    wait_for_task(task)

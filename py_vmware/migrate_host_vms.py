@@ -3,6 +3,7 @@
 import argparse
 import py_vmware.vmware_lib as vmware_lib
 import sys
+from tools import tasks
 
 
 def get_args():
@@ -85,6 +86,7 @@ def get_args():
     parser.add_argument('-v', '--vm', action='store', help='name of vm to migrate')
     parser.add_argument('-c', '--cluster', action='store', help='Target cluster')
     parser.add_argument('--skip', action='store', help='vm to skip')
+    parser.add_argument('--cold_migrate', action='store_true', help='Power off VM for migration')
 
     args = parser.parse_args()
     return args
@@ -100,7 +102,19 @@ def main():
     content = si.RetrieveContent()
 
     if args.vm:
-        result = vmware_lib.migrate_vm(content, args.vm, rebalance=False)
+        if args.cold_migrate:
+            vm = vmware_lib.get_obj(content, [vmware_lib.vim.VirtualMachine], args.vm)
+            if vm.runtime.powerState == 'poweredOn':
+                print 'Powering off {}'.format(args.vm)
+                task = vm.PowerOffVM_Task()
+                tasks.wait_for_tasks(si, [task])
+
+        print 'Migrating VM'
+        result = vmware_lib.migrate_vm(content, args.vm, rebalance=False, limit=90)
+        if args.cold_migrate:
+            print 'Powering on VM'
+            task = vm.PowerOnVM_Task()
+            tasks.wait_for_tasks(si, [task])
         return result
 
     if args.esxi_host:

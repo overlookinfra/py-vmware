@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
 import argparse
-import py_vmware.vmware_lib as vmware_lib
+#import py_vmware.vmware_lib as vmware_lib
+import vmware_lib
 import sys
 from tools import tasks
 
@@ -87,6 +88,8 @@ def get_args():
     parser.add_argument('-c', '--cluster', action='store', help='Target cluster')
     parser.add_argument('--skip', action='store', help='vm to skip')
     parser.add_argument('--cold_migrate', action='store_true', help='Power off VM for migration')
+    parser.add_argument('--max_migrations', type=int, action='store',
+                        default=6, help='Max number of migrations to perform')
 
     args = parser.parse_args()
     return args
@@ -121,7 +124,26 @@ def main():
         host = vmware_lib.get_obj(content, [vmware_lib.vim.HostSystem], args.esxi_host)
         if host:
             if args.migrate_vms:
-                vmware_lib.migrate_host_vms(content, host, args.skip, args.rebalance, args.limit)
+                vm_list = vmware_lib.build_vm_list(host, args.skip)
+                if len(vm_list) == 0:
+                    return 'No VMs to migrate'
+                available_hosts = vmware_lib.find_target_hosts(host, True)
+                if len(available_hosts) == 0:
+                    return 'No available hosts for migrations'
+                average_utilization = vmware_lib.average_utilization(available_hosts)
+                target_hosts = []
+                for av_host in available_hosts:
+                    if av_host[0] < average_utilization:
+                        target_hosts.append(av_host)
+                sorted_hosts = sorted(target_hosts)
+                migration_count = 0
+                for vm in vm_list:
+                    host_target = sorted_hosts[migration_count % len(sorted_hosts)][2]
+                    vmware_lib.migrate_vm(vm, host_target)
+                    migration_count = migration_count + 1
+                    if migration_count > args.max_migrations - 1:
+                        print 'Reached {} migrations, exiting'.format(migration_count)
+                        return
 
             if args.maintenance_mode or args.maintenance_mode == False:
                 vmware_lib.maintenance_mode(host, args.maintenance_mode)

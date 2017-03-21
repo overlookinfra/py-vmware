@@ -2,7 +2,6 @@
 
 from pyVmomi import vim
 from pyVim.connect import SmartConnect, Disconnect
-import vmutils
 import getpass
 import atexit
 import vmutils
@@ -42,33 +41,27 @@ def get_obj(content, vimtype, name):
 
     return obj
 
-def migrate_vm(content, virtual_machine, rebalance, limit):
+def migrate_vm(vm_object, host):
     """
     Migrate a virtual machine to the least used host
     """
-    target = find_target_host(virtual_machine, content, rebalance, limit=limit)
-    if target:
-        vm, target, current_host_name, target_host_name = target
-        if target_host_name == current_host_name:
-            return "{} is already located on the optimal host.".format(vm.name)
-        else:
-            print "Migrating {} from {} to {}".format(
-                vm.name, current_host_name, target_host_name)
-            move_vm(vm, target)
-            return True
-    else:
-        return "vm not found"
+    current_host_name = vm_object.summary.runtime.host.name
+    target_host_name = host.name
+    if host.name == current_host_name:
+        return "{} is already located on the optimal host.".format(vm_object.name)
+    print "Migrating {} from {} to {}".format(vm_object.name, current_host_name, target_host_name)
+    move_vm(vm_object, host)
 
-def move_vm(vm, host):
+def move_vm(vm_object, host):
     """
     Move vm to specified host
     """
     relospec = vim.vm.RelocateSpec()
     relospec.host = host
-    task = vm.Relocate(spec=relospec)
+    task = vm_object.Relocate(spec=relospec)
     wait_for_task(task)
 
-def find_target_host(vm, content, rebalance, cpu_limit=75, memory_limit=80, limit=True):
+def find_target_hosts(host, rebalance, cpu_limit=75, memory_limit=80, limit=True):
     """
     Find a host to migrate to
 
@@ -77,38 +70,83 @@ def find_target_host(vm, content, rebalance, cpu_limit=75, memory_limit=80, limi
     Ensure host is in the green state with no errors reported.
     Ensure host is not in maintenance mode
     """
-    try:
-        if isinstance(vm, str):
-            vmsource = get_obj(content, [vim.VirtualMachine], vm)
-        else:
-            vmsource = vm
-        current_host = vmsource.summary.runtime.host
-        model = current_host.hardware.cpuPkg[0].description
-        cluster = current_host.parent
-        hosts = cluster.host
-        if not rebalance:
-            hosts.remove(current_host)
-        target_hosts = []
-        for host in hosts:
-            if not host.runtime.inMaintenanceMode:
-                if host.overallStatus == 'green':
-                    if host.hardware.cpuPkg[0].description == model:
-                        cpu = host.summary.quickStats.overallCpuUsage
-                        memory = host.summary.quickStats.overallMemoryUsage
-                        memory_size = host.summary.hardware.memorySize / 1024 / 1024
-                        cpu_size = host.summary.hardware.cpuMhz * host.summary.hardware.numCpuCores
-                        memory_capacity = int(float(memory) / memory_size * 100)
-                        cpu_capacity = int(cpu / cpu_size * 100)
-                        if limit:
-                            if not memory_capacity > memory_limit:
-                                if not cpu_capacity > cpu_limit:
-                                    target_hosts.append([int(cpu + memory), host])
-                        else:
-                            target_hosts.append([int(cpu + memory), host])
-        target_host = sorted(target_hosts)[0][1]
-        return vmsource, target_host, current_host.name, target_host.name
-    except:
+    model = get_host_model(host)
+    hosts = host.parent.host
+    if not rebalance:
+        hosts.remove(host)
+    target_hosts = []
+    for host in hosts:
+        if host_is_available(host, model):
+            combined_usage, utilization = get_host_utilization(host)
+            target_hosts.append([combined_usage, utilization, host])
+    if limit:
+        for host in target_hosts:
+            if host_exceeded_utilization_limit(host[1], memory_limit, cpu_limit):
+                target_hosts.remove(host)
+#                    target_hosts.append([combined_usage, host])
+#            else:
+    #return vmsource, target_host, current_host.name, target_host.name
+    return target_hosts
+
+def average_utilization(hosts_list):
+    """Return average host utilization based on a input range"""
+    utilization = []
+    for host in hosts_list:
+        utilization.append(host[0])
+    avg_utilization = sum(utilization) / len(hosts_list)
+    return avg_utilization
+
+def ensure_vm_object(vm, content):
+    """Verify input is a VM object. If it is not, attempt to locate the object by name"""
+    if isinstance(vm, str):
+        vm_object = get_obj(content, [vim.VirtualMachine], vm)
+    else:
+        vm_object = vm
+    return vm_object
+
+def get_vm_parents(vm_object):
+    """Return a host and cluster for a VM"""
+    current_host = vm_object.summary.runtime.host
+    model = get_host_model(current_host)
+    cluster = current_host.parent
+    return [current_host, model, cluster]
+
+def host_exceeded_utilization_limit(utilization, memory_limit, cpu_limit):
+    """Check if host has reached a defined utilization limit"""
+    if utilization['memory'] > memory_limit:
+        return True
+    if utilization['cpu'] > cpu_limit:
+        return True
+    return False
+
+def get_host_utilization(host):
+    """Return host utilization"""
+    cpu = host.summary.quickStats.overallCpuUsage
+    memory = host.summary.quickStats.overallMemoryUsage
+    memory_size = host.summary.hardware.memorySize / 1024 / 1024
+    cpu_size = host.summary.hardware.cpuMhz * host.summary.hardware.numCpuCores
+    memory_utilization = (float(memory) / memory_size) * 100
+    cpu_utilization = (float(cpu) / cpu_size) * 100
+    combined_usage = int(cpu + (memory / 2))
+    return (
+        combined_usage,
+        {'memory': memory_utilization, 'cpu': cpu_utilization}
+    )
+
+def get_host_model(host):
+    """Crudely return CPU model by version number"""
+    model = host.hardware.cpuPkg[0].description
+    return model
+
+def host_is_available(host, model):
+    """Check to see if a host meets criteria to be available for placement"""
+    if host.runtime.inMaintenanceMode:
         return False
+    if not host.overallStatus == 'green':
+        return False
+    if not get_host_model(host) == model:
+        return False
+    return True
 
 def maintenance_mode(host, state):
     """
@@ -165,34 +203,32 @@ def sort_vms(vms, cpu_weight=50, memory_weight=50):
         just_vms.append(vm[1])
     return just_vms
 
-def migrate_host_vms(content, host, skip, rebalance, limit):
+def build_vm_list(host, skip_vm):
+    """Build list of host VMs, skipping any identified in skip_vm"""
+    vm_list = sort_vms(host.vm)
+    if skip_vm:
+        for vm in vm_list:
+            if vm.name in skip_vm:
+                vm_list.remove(vm)
+    return vm_list
+
+def migrate_host_vms(content, host, skip_vm, rebalance, limit):
     """
     Migrate vms of the provided host
 
     Skip vms provided in the skip parameter
     """
-    if len(host.vm) > 0:
-        migrate_count = 0
-        vms = sort_vms(host.vm)
-        for vm in vms:
-            if skip:
-                if not vm.name in skip:
-                    migrate = migrate_vm(content, vm, rebalance, limit)
-                    if isinstance(migrate, str):
-                        print ' '.join([migrate, 'Skipping remaining VMs.'])
-                        break
-                    else:
-                        migrate_count = migrate_count + 1
-            else:
-                migrate = migrate_vm(content, vm, rebalance, limit)
-                if isinstance(migrate, str):
-                    if not migrate == 'vm not found':
-                        print ' '.join([migrate, 'Skipping remaining VMs.'])
-                        break
-                else:
-                    migrate_count = migrate_count + 1
-        if migrate_count > 1:
-            print 'Successfully migrated {} vms from {}'.format(migrate_count, host.name)
+    migrate_count = 0
+    vm_list = build_vm_list(host, skip_vm)
+    for vm in vm_list:
+        migrate = migrate_vm(content, vm, rebalance, limit)
+        if isinstance(migrate, str):
+            print ' '.join([migrate, 'Skipping remaining VMs.'])
+            break
+        else:
+            migrate_count = migrate_count + 1
+    if migrate_count > 1:
+        print 'Successfully migrated {} vms from {}'.format(migrate_count, host.name)
     else:
         print 'No vms found on {}'.format(host.name)
 

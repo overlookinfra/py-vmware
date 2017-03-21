@@ -110,10 +110,8 @@ def main():
         unknown_vms = FindUnknownVms(vms)
     if unknown_vms:
         print 'Found {} unknown VMs'.format(len(unknown_vms))
-        for vm in unknown_vms:
-            print vm.name
         if args.destroy:
-            print 'Reached destroy'
+            print 'Destroy for unknown VMs requested'
             for vm in unknown_vms:
                 try:
                     if format(vm.runtime.powerState) == 'poweredOn':

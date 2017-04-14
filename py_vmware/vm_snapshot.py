@@ -2,13 +2,10 @@
 """
 Snapshot time
 """
-from pyVmomi import vim
-from pyVim.connect import SmartConnect, Disconnect
-import atexit
 import argparse
+import py_vmware.vmware_lib as vmware_lib
 import getpass
-import ssl
-from tools import tasks
+from py_vmware.tools import tasks
 
 
 def get_args():
@@ -55,10 +52,29 @@ def get_args():
                         action='store_true',
                         help='revert to latest snapshot')
 
+    parser.add_argument('-d', '--destroy_all',
+                        action='store_true',
+                        help='Destroy all VM snapshots')
+
+    parser.add_argument('-w', '--wait_for_task',
+                        action='store_true',
+                        help='Wait for task to complete before exiting')
+
+    parser.add_argument('-f', '--folder',
+                        action='store',
+                        help='Parent folder for VM')
+
+    parser.add_argument('-l', '--list_snapshots',
+                        action='store_true',
+                        help='List VM snapshots, if present')
+
     args = parser.parse_args()
 
-    return args
+    if not args.password:
+        args.password = getpass.getpass(
+            prompt='Enter password')
 
+    return args
 
 def wait_for_task(task):
     """ wait for a vCenter task to finish """
@@ -70,27 +86,6 @@ def wait_for_task(task):
         if task.info.state == 'error':
             print "there was an error"
             task_done = True
-
-
-def get_obj(content, vimtype, name):
-    """
-    Return an object by name, if name is None the
-    first found object is returned
-    """
-    obj = None
-    container = content.viewManager.CreateContainerView(
-        content.rootFolder, vimtype, True)
-    for c in container.view:
-        if name:
-            if c.name == name:
-                obj = c
-                break
-        else:
-            obj = c
-            break
-
-    return obj
-
 
 def take_vm_snapshot(si, vm, sname):
     #if len(vm.rootSnapshot) < 1:
@@ -105,47 +100,47 @@ def revert_to_latest_snapshot(si, vm):
     task = vm.RevertToCurrentSnapshot()
     tasks.wait_for_tasks(si, [task])
 
-
 def main():
     """
     Do some stuff
     """
     args = get_args()
 
-    if args.insecure:
-        context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
-        context.verify_mode = ssl.CERT_NONE
-        si = SmartConnect(
-            host=args.host,
-            user=args.user,
-            pwd=args.password,
-            port=args.port,
-            sslContext=context)
-    else:
-        si = SmartConnect(
-            host=args.host,
-            user=args.user,
-            pwd=args.password,
-            port=args.port)
-    # disconnect this thing
-    atexit.register(Disconnect, si)
-
+    si = vmware_lib.connect(args.host, args.user, args.password, args.port, args.insecure)
     content = si.RetrieveContent()
 
-    vm = get_obj(content, [vim.VirtualMachine], args.vm_name)
-
-    if vm:
-        if args.snapshot_name:
-            print "Creating snapshot {} for {}".format(args.snapshot_name, vm.name)
-            take_vm_snapshot(si, vm, args.snapshot_name)
-        elif args.revert:
-            print "Reverting to latest snapshot for {}".format(vm.name)
-            revert_to_latest_snapshot(si, vm)
-            tasks.wait_for_tasks(si, [vm.PowerOn()])
-        else:
-            print "No actions requested. Doing nothing"
+    if args.folder:
+        folder = vmware_lib.get_obj(content, [vmware_lib.vim.Folder], args.folder)
+        for vm in folder.childEntity:
+            if vm.name == args.vm_name:
+                vm_object = vm
     else:
-        print "{} not found".format(args.vm_name)
+        vm_object = vmware_lib.get_obj(content, [vmware_lib.vim.VirtualMachine], args.vm_name)
+
+    if vm_object == None:
+        print 'Cannot find {}'.format(args.vm_name)
+        return
+
+    if args.snapshot_name:
+        print "Creating snapshot {} for {}".format(args.snapshot_name, args.vm_name)
+        take_vm_snapshot(si, vm_object, args.snapshot_name)
+    if args.revert:
+        print "Reverting to latest snapshot for {}".format(args.vm_name)
+        revert_to_latest_snapshot(si, vm_object)
+        tasks.wait_for_tasks(si, [vm_object.PowerOn()])
+    if args.destroy_all:
+        print "Destroying snapshots for {}".format(args.vm_name)
+        task = vm_object.RemoveAllSnapshots_Task()
+        if args.wait_for_task:
+            vmware_lib.wait_for_task(task)
+            print 'All snapshots for {} have been destroyed'.format(args.vm_name)
+    if args.list_snapshots:
+        try:
+            snaps = vm_object.snapshot.rootSnapshotList
+            for snap in snaps:
+                print snap
+        except AttributeError:
+            print 'No snapshots found for {}'.format(args.vm_name)
 
 if __name__ == "__main__":
     main()

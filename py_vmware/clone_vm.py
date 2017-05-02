@@ -5,12 +5,10 @@ Github: https://github.com/whereismyjetpack
 Email: dannbohn@gmail.com
 Clone a VM from template example
 """
-from pyVmomi import vim
-from pyVim.connect import SmartConnect, Disconnect
-import atexit
 import argparse
+import py_vmware.vmware_lib as vmware_lib
+import sys
 import getpass
-import ssl
 from tools import tasks
 
 
@@ -119,10 +117,15 @@ def get_args():
                         action='store_true',
                         help='disable ssl validation')
 
-    parser.add_argument('-l', '--linked_clone',
+    parser.add_argument('-l', '--linked-clone',
                         required=False,
                         action='store_true',
                         help='create linked clone')
+
+    parser.add_argument('-tf', '--template-folder',
+                        required=False,
+                        action='store',
+                        help='parent folder of template')
 
     parser.set_defaults(power_on=True)
 
@@ -185,29 +188,29 @@ def clone_vm(
     """
 
     # if none git the first one
-    datacenter = get_obj(content, [vim.Datacenter], datacenter_name)
+    datacenter = get_obj(content, [vmware_lib.vim.Datacenter], datacenter_name)
 
     if vm_folder:
-        destfolder = get_obj(content, [vim.Folder], vm_folder)
+        destfolder = get_obj(content, [vmware_lib.vim.Folder], vm_folder)
     else:
         destfolder = datacenter.vmFolder
 
     if datastore_name:
-        datastore = get_obj(content, [vim.Datastore], datastore_name)
+        datastore = get_obj(content, [vmware_lib.vim.Datastore], datastore_name)
     else:
         datastore = get_obj(
-            content, [vim.Datastore], template.datastore[0].info.name)
+            content, [vmware_lib.vim.Datastore], template.datastore[0].info.name)
 
     # if None, get the first one
-    cluster = get_obj(content, [vim.ClusterComputeResource], cluster_name)
+    cluster = get_obj(content, [vmware_lib.vim.ClusterComputeResource], cluster_name)
 
     if resource_pool:
-        resource_pool = get_obj(content, [vim.ResourcePool], resource_pool)
+        resource_pool = get_obj(content, [vmware_lib.vim.ResourcePool], resource_pool)
     else:
         resource_pool = cluster.resourcePool
 
     # set relospec
-    relospec = vim.vm.RelocateSpec()
+    relospec = vmware_lib.vim.vm.RelocateSpec()
     relospec.datastore = datastore
     if linked_clone:
         relospec.diskMoveType = 'moveChildMostDiskBacking'
@@ -215,16 +218,24 @@ def clone_vm(
     #    relospec.diskMoveType = 'createNewChildDiskBacking'
     relospec.pool = resource_pool
 
-    vmconf = vim.vm.ConfigSpec()
+    vmconf = vmware_lib.vim.vm.ConfigSpec()
     vmconf.numCPUs = cpus
     vmconf.memoryMB = memory
     vmconf.cpuHotAddEnabled = True
     vmconf.memoryHotAddEnabled = True
+    vmconf.extraConfig = []
+    opt = vmware_lib.vim.option.OptionValue()
+    options = {'guestinfo.hostname': vm_name}
+    for k, v in options.iteritems():
+        opt.key = k
+        opt.value = v
+        vmconf.extraConfig.append(opt)
+        opt = vmware_lib.vim.option.OptionValue()
 
    #if linked_clone:
    #    clonespec = vim.vm.CloneSpec(snapshot=template.snapshot.rootSnapshotList[0].snapshot)
    #else:
-    clonespec = vim.vm.CloneSpec()
+    clonespec = vmware_lib.vim.vm.CloneSpec()
     clonespec.location = relospec
     clonespec.config = vmconf
     clonespec.powerOn = power_on
@@ -240,35 +251,22 @@ def main():
     args = get_args()
 
     # connect this thing
-
-    if args.insecure:
-        context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
-        context.verify_mode = ssl.CERT_NONE
-        si = SmartConnect(
-            host=args.host,
-            user=args.user,
-            pwd=args.password,
-            port=args.port,
-            sslContext=context)
-    else:
-        si = SmartConnect(
-            host=args.host,
-            user=args.user,
-            pwd=args.password,
-            port=args.port)
-    # disconnect this thing
-    atexit.register(Disconnect, si)
-
+    si = vmware_lib.connect(args.host, args.user, args.password, args.port, args.insecure)
     content = si.RetrieveContent()
-    template = None
 
-    template = get_obj(content, [vim.VirtualMachine], args.template)
+    vm_object = None
 
-    if template:
-    #   if args.linked_clone:
-    #       take_template_snapshot(si, template)
+    if args.template_folder:
+        folder = vmware_lib.get_obj(content, [vmware_lib.vim.Folder], args.template_folder)
+        for vm in folder.childEntity:
+            if vm.name == args.template:
+                vm_object = vm
+    else:
+        vm_object = vmware_lib.get_obj(content, [vmware_lib.vim.VirtualMachine], args.template)
+
+    if vm_object:
         clone_vm(
-            content, template, args.vm_name, si,
+            content, vm_object, args.vm_name, si,
             args.datacenter_name, args.vm_folder,
             args.datastore_name, args.cluster_name,
             args.resource_pool, args.power_on,

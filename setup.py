@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='py_vmware',
-    version='0.0.16',
+    version='0.0.17',
     packages=find_packages(),
     install_requires=['pyvmomi'],
     entry_points={

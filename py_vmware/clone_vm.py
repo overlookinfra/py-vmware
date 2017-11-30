@@ -103,14 +103,12 @@ def get_args():
     parser.add_argument('--cpus',
                         required=False,
                         type=int,
-                        default=2,
                         help='number of CPUs')
 
     parser.add_argument('--memory',
                         required=False,
                         type=int,
-                        default=2048,
-                        help='amount of memory for vm')
+                        help='amount of memory for vm in MB')
 
     parser.add_argument('-i', '--insecure',
                         required=False,
@@ -181,7 +179,7 @@ def clone_vm(
         content, template, vm_name, si,
         datacenter_name, vm_folder, datastore_name,
         cluster_name, resource_pool, power_on, cpus,
-        memory, linked_clone):
+        memory, linked_clone, enablehotswap=False):
     """
     Clone a VM from a template/VM, datacenter_name, vm_folder, datastore_name
     cluster_name, resource_pool, and power_on are all optional.
@@ -219,10 +217,13 @@ def clone_vm(
     relospec.pool = resource_pool
 
     vmconf = vmware_lib.vim.vm.ConfigSpec()
-    vmconf.numCPUs = cpus
-    vmconf.memoryMB = memory
-    vmconf.cpuHotAddEnabled = True
-    vmconf.memoryHotAddEnabled = True
+    if memory:
+        vmconf.memoryMB = memory
+    if cpus:
+        vmconf.numCPUs = cpus
+    if enablehotswap:
+        vmconf.cpuHotAddEnabled = True
+        vmconf.memoryHotAddEnabled = True
     vmconf.extraConfig = []
     opt = vmware_lib.vim.option.OptionValue()
     options = {'guestinfo.hostname': vm_name}
@@ -238,7 +239,8 @@ def clone_vm(
     clonespec = vmware_lib.vim.vm.CloneSpec()
     clonespec.location = relospec
     clonespec.config = vmconf
-    clonespec.powerOn = power_on
+    if power_on == False:
+        clonespec.powerOn = False
 
     print "cloning VM..."
     task = template.Clone(folder=destfolder, name=vm_name, spec=clonespec)

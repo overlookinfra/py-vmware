@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='py_vmware',
-    version='0.0.17',
+    version='0.0.18',
     packages=find_packages(),
     install_requires=['pyvmomi'],
     entry_points={
@@ -18,6 +18,7 @@ setup(
             'vmware_vm_snapshot = py_vmware.vm_snapshot:main',
             'vmware_mount_datastore = py_vmware.add_cluster_datastore:main',
             'vmware_empty_datastore = py_vmware.empty_datastore:main',
+            'vmware_register_vm = py_vmware.register_vm:main',
         ]
     },
     author='Matt Kirby',

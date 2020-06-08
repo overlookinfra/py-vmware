@@ -141,7 +141,7 @@ def reconnect_host(host, user, pwd):
 
 def connect(host, user, pwd, port, insecure):
     if insecure:
-        context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS)
         context.verify_mode = ssl.CERT_NONE
         si = SmartConnect(
                 host=host, user=user, pwd=pwd, port=port, sslContext=context)
